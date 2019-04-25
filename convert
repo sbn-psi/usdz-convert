@@ -1,75 +1,51 @@
-#!/usr/local/bin/python3.7
+#!/usr/bin/python3
 
 import sys
 import subprocess
-import os.path
+import os
 import re
 import getopt
-import walkPath
-import numpy
-from stl import mesh
+from obj2stl import obj2stl
+import itertools
+
+def find_files(dirname):
+    '''
+    Gets all of the files in a directory
+    '''
+    filelists = [[os.path.join(subdir, f) for f in files] for subdir, _, files in os.walk(dirname)]
+    return itertools.chain.from_iterable(filelists)
+
+def process(dirname,function,filter=None):
+    return [function(x) for x in find_files(dirname) if filter is None or filter(x)]
 
 class Usage(Exception):
     def __init__(self, msg):
         self.msg = msg
 
-# Swap column positions
-def swap_columns(ORIGINAL_FILE_NAME, SWAPPED_FILE_NAME):
-    print('=====')
-    print('NEW FILE: ' + ORIGINAL_FILE_NAME)
-    print('Swapping X and Y axes')
-
-
-    with open( ORIGINAL_FILE_NAME ) as original_file, open(SWAPPED_FILE_NAME,'w+') as swapped_file:
-        lines = original_file.readlines()
-        vertices = [[float(f) for f in x.strip().split()[1:4]] for x in lines if x.startswith('v ')]
-
-        (xs, ys, zs) = zip(*vertices)
-        xrange = max(xs) - min(xs)
-        yrange = max(ys) - min(ys)
-        zrange = max(zs) - min(zs)
-
-        maxrange = max([xrange,yrange,zrange])
-
-        MODEL_SIZE = 300
-        SCALE = MODEL_SIZE / maxrange
-
-        for line in lines:
-
-            COLUMNS = line.strip().split(' ')
-            if line.startswith('v '):
-                newColumns = ['v'] + [str(float(x) * SCALE) for x in COLUMNS[1:]]
-                # Swap column order of y and z axes
-                newColumns[1], newColumns[2] = newColumns[2], newColumns[1]
-
-                conor = ' '.join(newColumns) + '\n'
-                # print(conor)
-
-                swapped_file.write(conor)
-            elif line.startswith('vn '):
-                pass
-            else:
-                swapped_file.write(line)
+def rotateMesh(STL_FILE_PATH, ROTATED_STL_FILE_NAME):
+    infile = 'infile="' + STL_FILE_PATH + '"'
+    SCAD_PATH = os.path.abspath('scad/rotate_stl.scad')
+    
+    p = subprocess.run([
+        'openscad',
+        '-o', ROTATED_STL_FILE_NAME,
+        '-D', infile,
+        SCAD_PATH
+    ])
 
 def convertToUsdz(ORIGINAL_FILE_NAME):
-    SWAPPED_FILE_NAME  = re.sub( '.obj', '.py.obj', ORIGINAL_FILE_NAME )
-
-    swap_columns(ORIGINAL_FILE_NAME, SWAPPED_FILE_NAME)
-
-    print('Converting .obj file to .usdz')
-
-    # Take swapped_file and convert to usdz
-    USDZ_FILE_PATH = re.sub('.py.obj','.usdz',os.path.abspath(SWAPPED_FILE_NAME))
-
-    # Run usdz_converter
-    p = subprocess.run(['xcrun','usdz_converter',SWAPPED_FILE_NAME,USDZ_FILE_PATH], stdout=subprocess.PIPE)
-    stdout = p.stdout.decode('UTF-8')
-
-    # print subprocess stdout to terminal
-    print(stdout)
-
+    STL_FILE_NAME  = re.sub( '.obj', '.obj.stl', ORIGINAL_FILE_NAME )
+    STL_FILE_PATH = os.path.abspath(STL_FILE_NAME)
+    ROTATED_STL_FILE_NAME  = re.sub( '.obj.stl', '.rotated.stl', STL_FILE_NAME )
+    
+    # convert to STL
+    obj2stl(open(ORIGINAL_FILE_NAME), STL_FILE_NAME)
+    
+    # rotate mesh
+    rotateMesh(STL_FILE_PATH,ROTATED_STL_FILE_NAME)
+    
     # Remove any leftover artifacts
-    os.remove(os.path.abspath(SWAPPED_FILE_NAME))
+    os.remove(os.path.abspath(STL_FILE_NAME))
 
     print('Done.')
 
@@ -85,7 +61,7 @@ def main(argv=None):
 
             dirname = argv[1] if len(argv) > 1 else '.'
 
-            walkPath.process(dirname,convertToUsdz,lambda x: x.endswith('.obj'))
+            process(dirname,convertToUsdz,lambda x: x.endswith('.obj'))
 
         except (Usage, err):
             print >>sys.stderr, err.msg
