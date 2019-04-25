@@ -1,0 +1,96 @@
+#!/usr/local/bin/python3.7
+
+import sys
+import subprocess
+import os.path
+import re
+import getopt
+import walkPath
+import numpy
+from stl import mesh
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+# Swap column positions
+def swap_columns(ORIGINAL_FILE_NAME, SWAPPED_FILE_NAME):
+    print('=====')
+    print('NEW FILE: ' + ORIGINAL_FILE_NAME)
+    print('Swapping X and Y axes')
+
+
+    with open( ORIGINAL_FILE_NAME ) as original_file, open(SWAPPED_FILE_NAME,'w+') as swapped_file:
+        lines = original_file.readlines()
+        vertices = [[float(f) for f in x.strip().split()[1:4]] for x in lines if x.startswith('v ')]
+
+        (xs, ys, zs) = zip(*vertices)
+        xrange = max(xs) - min(xs)
+        yrange = max(ys) - min(ys)
+        zrange = max(zs) - min(zs)
+
+        maxrange = max([xrange,yrange,zrange])
+
+        MODEL_SIZE = 300
+        SCALE = MODEL_SIZE / maxrange
+
+        for line in lines:
+
+            COLUMNS = line.strip().split(' ')
+            if line.startswith('v '):
+                newColumns = ['v'] + [str(float(x) * SCALE) for x in COLUMNS[1:]]
+                # Swap column order of y and z axes
+                newColumns[1], newColumns[2] = newColumns[2], newColumns[1]
+
+                conor = ' '.join(newColumns) + '\n'
+                # print(conor)
+
+                swapped_file.write(conor)
+            elif line.startswith('vn '):
+                pass
+            else:
+                swapped_file.write(line)
+
+def convertToUsdz(ORIGINAL_FILE_NAME):
+    SWAPPED_FILE_NAME  = re.sub( '.obj', '.py.obj', ORIGINAL_FILE_NAME )
+
+    swap_columns(ORIGINAL_FILE_NAME, SWAPPED_FILE_NAME)
+
+    print('Converting .obj file to .usdz')
+
+    # Take swapped_file and convert to usdz
+    USDZ_FILE_PATH = re.sub('.py.obj','.usdz',os.path.abspath(SWAPPED_FILE_NAME))
+
+    # Run usdz_converter
+    p = subprocess.run(['xcrun','usdz_converter',SWAPPED_FILE_NAME,USDZ_FILE_PATH], stdout=subprocess.PIPE)
+    stdout = p.stdout.decode('UTF-8')
+
+    # print subprocess stdout to terminal
+    print(stdout)
+
+    # Remove any leftover artifacts
+    os.remove(os.path.abspath(SWAPPED_FILE_NAME))
+
+    print('Done.')
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
+        try:
+            try:
+                opts, args = getopt.getopt(argv[1:], "h", ["help"])
+            except (getopt.error, msg):
+                raise Usage(msg)
+
+            dirname = argv[1] if len(argv) > 1 else '.'
+
+            walkPath.process(dirname,convertToUsdz,lambda x: x.endswith('.obj'))
+
+        except (Usage, err):
+            print >>sys.stderr, err.msg
+            print >>sys.stderr, "for help use --help"
+            return 2
+
+if __name__ == "__main__":
+    sys.exit(main())
