@@ -5,7 +5,6 @@ import subprocess
 import os
 import re
 import getopt
-from obj2stl import obj2stl
 import itertools
 
 def find_files(dirname):
@@ -25,7 +24,7 @@ class Usage(Exception):
 def rotateMesh(STL_FILE_PATH, ROTATED_STL_FILE_NAME):
     infile = 'infile="' + STL_FILE_PATH + '"'
     SCAD_PATH = os.path.abspath('scad/rotate_stl.scad')
-    
+
     p = subprocess.run([
         'openscad',
         '-o', ROTATED_STL_FILE_NAME,
@@ -37,18 +36,43 @@ def convertToUsdz(ORIGINAL_FILE_NAME):
     STL_FILE_NAME  = re.sub( '.obj', '.obj.stl', ORIGINAL_FILE_NAME )
     STL_FILE_PATH = os.path.abspath(STL_FILE_NAME)
     ROTATED_STL_FILE_NAME  = re.sub( '.obj.stl', '.rotated.stl', STL_FILE_NAME )
-    
+    ROTATED_STL_FILE_PATH  = os.path.abspath(re.sub( '.obj.stl', '.rotated.stl', ROTATED_STL_FILE_NAME ))
+
     # convert to STL
-    obj2stl(open(ORIGINAL_FILE_NAME), STL_FILE_NAME)
-    
+    stlProcess = subprocess.run([
+        'meshconv',
+        ORIGINAL_FILE_NAME,
+        '-c', 'stl',
+        '-o', re.sub('.stl', '', STL_FILE_NAME)
+    ])
+
     # rotate mesh
     rotateMesh(STL_FILE_PATH,ROTATED_STL_FILE_NAME)
-    
+
+    # convert back to OBJ
+    objProcess = subprocess.run([
+        'meshconv',
+        ROTATED_STL_FILE_NAME,
+        '-c', 'obj',
+        '-o', re.sub('.stl', '', ROTATED_STL_FILE_NAME)
+    ])
+
+    ROTATED_OBJ_FILE_NAME = re.sub('.stl', '.obj', ROTATED_STL_FILE_NAME)
+    USDZ_FILE_NAME = re.sub('.rotated.obj', '.usdz', ROTATED_OBJ_FILE_NAME)
+
+    # convert to USDZ
+    usdzProcess = subprocess.run([
+        'xcrun', 'usdz_converter',
+        ROTATED_OBJ_FILE_NAME,
+        USDZ_FILE_NAME
+    ])
+
     # Remove any leftover artifacts
     os.remove(os.path.abspath(STL_FILE_NAME))
+    os.remove(os.path.abspath(ROTATED_STL_FILE_NAME))
+    os.remove(os.path.abspath(ROTATED_OBJ_FILE_NAME))
 
     print('Done.')
-
 
 def main(argv=None):
     if argv is None:
